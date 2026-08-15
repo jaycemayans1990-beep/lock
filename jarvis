@@ -5,8 +5,8 @@ local Camera = workspace.CurrentCamera
 
 -- คอนฟิกค่าใช้งาน
 _G.AimbotEnabled = true
-_G.Smoothness = 0.2 
-_G.FOVRadius = 100
+_G.Smoothness = 0.4 
+_G.FOVRadius = 120
 _G.TargetPart = "Head" 
 _G.TeamCheck = true  -- ✅ เพิ่มตัวเลือกตรวจสอบทีม
 
