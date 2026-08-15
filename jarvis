@@ -1,0 +1,172 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- คอนฟิกค่าใช้งาน
+_G.AimbotEnabled = true
+_G.Smoothness = 0.15 
+_G.FOVRadius = 150
+_G.TargetPart = "Head" 
+_G.TeamCheck = true  -- ✅ เพิ่มตัวเลือกตรวจสอบทีม
+
+-- [[ สร้าง UI หน้าต่างควบคุมบนมือถือ ]] --
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+if PlayerGui:FindFirstChild("JarvisAimbotV2") then
+    PlayerGui.JarvisAimbotV2:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "JarvisAimbotV2"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = PlayerGui
+
+-- วงกลม FOV 
+local FOVCircle = Instance.new("Frame")
+FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+FOVCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+FOVCircle.Size = UDim2.new(0, _G.FOVRadius * 2, 0, _G.FOVRadius * 2)
+FOVCircle.BackgroundTransparency = 1
+FOVCircle.Visible = true
+FOVCircle.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(1, 0)
+UICorner.Parent = FOVCircle
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(255, 0, 0)
+UIStroke.Thickness = 1.5
+UIStroke.Parent = FOVCircle
+
+-- หน้าต่างควบคุมหลัก (GUI ดำ-แดง)
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 220, 0, 240)
+MainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.BorderColor3 = Color3.fromRGB(255, 0, 0)
+MainFrame.BorderSizePixel = 2
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundColor3 = Color3.fromRGB(25, 0, 0)
+Title.Text = "JARVIS AIM V2 (MOBILE)"
+Title.TextColor3 = Color3.fromRGB(255, 0, 0)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 16
+Title.Parent = MainFrame
+
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, 0, 1, -40)
+Content.Position = UDim2.new(0, 0, 0, 40)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
+
+local UIList = Instance.new("UIListLayout")
+UIList.Padding = UDim.new(0, 8)
+UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+UIList.Parent = Content
+
+-- ฟังก์ชันหาเป้าหมายที่อยู่ใกล้กึ่งกลางจอที่สุด (พร้อมตรวจสอบทีม)
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            -- ✅ ตรวจสอบทีม: ข้ามผู้เล่นทีมเดียวกัน
+            if _G.TeamCheck and player.Team == LocalPlayer.Team then
+                continue
+            end
+            
+            -- ✅ ตรวจสอบกรณี LocalPlayer ยังไม่มีทีม
+            if _G.TeamCheck and not LocalPlayer.Team then
+                continue
+            end
+            
+            local character = player.Character
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            local targetPart = character:FindFirstChild(_G.TargetPart)
+
+            if humanoid and humanoid.Health > 0 and targetPart then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                    if distance < _G.FOVRadius and distance < shortestDistance then
+                        closestPlayer = player
+                        shortestDistance = distance
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- [[ ระบบควบคุมปุ่มกด ]] --
+local function createButton(text, defaultState, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.9, 0, 0, 40)
+    btn.BackgroundColor3 = defaultState and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(30, 30, 30)
+    btn.Text = text .. (defaultState and ": ON" or ": OFF")
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 13
+    btn.Parent = Content
+
+    local state = defaultState
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(30, 30, 30)
+        btn.Text = text .. (state and ": ON" or ": OFF")
+        callback(state)
+    end)
+end
+
+createButton("AIMBOT LOCKON", _G.AimbotEnabled, function(val) _G.AimbotEnabled = val end)
+createButton("SHOW FOV", true, function(val) FOVCircle.Visible = val end)
+createButton("TEAM CHECK", _G.TeamCheck, function(val) _G.TeamCheck = val end)  -- ✅ เพิ่มปุ่ม
+
+-- ปุ่มพับ GUI
+local Minimize = Instance.new("TextButton")
+Minimize.Size = UDim2.new(0, 40, 0, 40)
+Minimize.Position = UDim2.new(1, -40, 0, 0)
+Minimize.BackgroundTransparency = 1
+Minimize.Text = "-"
+Minimize.TextColor3 = Color3.fromRGB(255, 0, 0)
+Minimize.Font = Enum.Font.SourceSansBold
+Minimize.TextSize = 22
+Minimize.Parent = MainFrame
+
+local Minimized = false
+Minimize.MouseButton1Click:Connect(function()
+    Minimized = not Minimized
+    if Minimized then
+        MainFrame:TweenSize(UDim2.new(0, 220, 0, 40), "Out", "Quad", 0.15, true)
+        Content.Visible = false
+        Minimize.Text = "+"
+    else
+        MainFrame:TweenSize(UDim2.new(0, 220, 0, 240), "Out", "Quad", 0.15, true)
+        Content.Visible = true
+        Minimize.Text = "-"
+    end
+end)
+
+-- [[ ระบบล็อกมุมกล้องแบบเนียนตา (Smooth Camera Lock) ]] --
+RunService.RenderStepped:Connect(function()
+    if _G.AimbotEnabled then
+        local target = getClosestPlayer()
+        if target and target.Character then
+            local targetPart = target.Character:FindFirstChild(_G.TargetPart)
+            if targetPart then
+                -- หมุนกล้องหันไปหาเป้าหมายอย่างสมูท (Lerp CFrame)
+                local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+                Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, _G.Smoothness)
+            end
+        end
+    end
+end)
