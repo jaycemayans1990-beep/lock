@@ -1,0 +1,329 @@
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+
+-- 1. Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Stats = game:GetService("Stats")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- 2. Global States
+local State = {
+    Aimbot = false,
+    TeamCheck = true,
+    WallCheck = false,
+    Prediction = false,
+    BulletSpeed = 1000, -- ความเร็วกระสุน (ปรับเพิ่ม/ลดใน UI ได้)
+    Smoothness = 0.3,
+    FOV = 150,
+    ShowFOV = false,
+    ESP = false
+}
+
+-- 3. Ping Helper Function
+local function getPing()
+    local pingItem = Stats.Network.ServerStatsItem:FindFirstChild("Data Ping")
+    if pingItem then
+        return (pingItem:GetValue() / 1000)
+    end
+    return 0.05
+end
+
+-- 4. Dynamic Camera Helper
+local function getCamera()
+    return Workspace.CurrentCamera
+end
+
+-- 5. FOV Circle Drawing Engine
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1.5
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Filled = false
+FOVCircle.Transparency = 0.7
+FOVCircle.Visible = false
+
+-- 6. Target Validation Check
+local function isValidEnemy(player)
+    if player == LocalPlayer or not player.Character then return false end
+    
+    local humanoid = player.Character:FindFirstChild("Humanoid")  
+    local rootPart = player.Character:FindFirstChild("HumanoidRootPart")  
+      
+    if not humanoid or not rootPart or humanoid.Health <= 0 then   
+        return false   
+    end  
+    
+    if player.Character:FindFirstChildOfClass("ForceField") then  
+        return false  
+    end  
+    
+    if State.TeamCheck then  
+        if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then  
+            return false  
+        end  
+    end  
+    
+    return true
+end
+
+-- 7. Wall Check Function
+local function isVisible(targetPart)
+    if not State.WallCheck then return true end
+    
+    local camera = getCamera()  
+    local origin = camera.CFrame.Position  
+    local destination = targetPart.Position  
+    local direction = destination - origin  
+      
+    local raycastParams = RaycastParams.new()  
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude  
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, camera}  
+    raycastParams.IgnoreWater = true  
+      
+    local result = Workspace:Raycast(origin, direction, raycastParams)  
+      
+    if result then  
+        return result.Instance:IsDescendantOf(targetPart.Parent)  
+    end  
+      
+    return false
+end
+
+-- 8. Target Acquisition
+local function getClosestTarget()
+    local closestPlayer = nil
+    local shortestDist = State.FOV
+    local camera = getCamera()
+    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    
+    for _, player in ipairs(Players:GetPlayers()) do  
+        if isValidEnemy(player) then  
+            local targetPart = player.Character:FindFirstChild("Head") or player.Character:FindFirstChild("HumanoidRootPart")  
+            if targetPart and isVisible(targetPart) then  
+                local screenPoint, onScreen = camera:WorldToViewportPoint(targetPart.Position)  
+                  
+                if onScreen then  
+                    local dist = (Vector2.new(screenPoint.X, screenPoint.Y) - screenCenter).Magnitude  
+                    if dist < shortestDist then  
+                        shortestDist = dist  
+                        closestPlayer = player  
+                    end  
+                end  
+            end  
+        end  
+    end  
+    return closestPlayer
+end
+
+-- 9. Advanced Dynamic Prediction Engine (ปรับปรุงใหม่)
+local function getPredictedPosition(target)
+    if not target or not target.Character then return nil end
+    
+    local targetPart = target.Character:FindFirstChild("Head") or target.Character:FindFirstChild("HumanoidRootPart")  
+    if not targetPart then return nil end  
+      
+    local targetPos = targetPart.Position  
+    
+    if State.Prediction then  
+        local rootPart = target.Character:FindFirstChild("HumanoidRootPart")  
+        if rootPart then  
+            local camera = getCamera()
+            local distance = (targetPos - camera.CFrame.Position).Magnitude
+            local currentPing = getPing()
+            
+            -- คำนวณระยะเวลาเดินทางจริงของกระสุน + Ping ชดเชย
+            local timeToTarget = (distance / State.BulletSpeed) + (currentPing / 2)
+            local velocity = rootPart.AssemblyLinearVelocity  
+            
+            if velocity.Magnitude > 0.5 then
+                targetPos = targetPos + (velocity * timeToTarget)  
+            end
+        end  
+    end  
+      
+    return targetPos
+end
+
+-- 10. Smooth Aimbot Process (ปรับปรุงใช้ deltaTime กันสั่น)
+local function processAimbot(deltaTime)
+    if not State.Aimbot then return end
+    
+    local target = getClosestTarget()  
+    if target then  
+        local targetPos = getPredictedPosition(target)  
+        if targetPos then  
+            local camera = getCamera()  
+            local targetCFrame = CFrame.lookAt(camera.CFrame.Position, targetPos)  
+            local smoothFactor = math.clamp(State.Smoothness * deltaTime * 60, 0.01, 1)
+            camera.CFrame = camera.CFrame:Lerp(targetCFrame, smoothFactor)  
+        end  
+    end
+end
+
+-- 11. ESP Management
+local function clearESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character then
+            local highlight = player.Character:FindFirstChild("ESP_Highlight")
+            if highlight then
+                highlight:Destroy()
+            end
+        end
+    end
+end
+
+local function processESP()
+    if not State.ESP then
+        clearESP()
+        return
+    end
+    
+    for _, player in ipairs(Players:GetPlayers()) do  
+        if isValidEnemy(player) then  
+            local highlight = player.Character:FindFirstChild("ESP_Highlight")  
+            if not highlight then  
+                highlight = Instance.new("Highlight")  
+                highlight.Name = "ESP_Highlight"  
+                highlight.FillColor = Color3.fromRGB(180, 0, 255)
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+                highlight.FillTransparency = 0.15
+                highlight.OutlineTransparency = 0
+                highlight.Parent = player.Character
+            end  
+        else  
+            if player.Character then  
+                local highlight = player.Character:FindFirstChild("ESP_Highlight")  
+                if highlight then highlight:Destroy() end  
+            end  
+        end  
+    end
+end
+
+-- 12. Main Loop Handling
+RunService.RenderStepped:Connect(function(deltaTime)
+    local camera = getCamera()
+    
+    FOVCircle.Position = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)  
+    FOVCircle.Radius = State.FOV  
+    FOVCircle.Visible = State.ShowFOV  
+      
+    processAimbot(deltaTime)  
+    processESP()
+end)
+
+-- 13. Wind UI Configuration
+local Window = WindUI:CreateWindow({
+    Title = "ADVANCED AIMBOT SYSTEM (ACCURATE)",
+    Icon = "crosshair",
+    Author = "WindUI Version",
+    Folder = "WindUI_Config",
+    Size = UDim2.fromOffset(580, 480),
+    Transparent = true,
+    Theme = "Dark",
+    SideBarWidth = 200,
+    HasOutline = true,
+})
+
+-- Combat Tab
+local CombatTab = Window:Tab({
+    Title = "Combat",
+    Icon = "swords",
+})
+
+CombatTab:Section({ Title = "Aimbot Controls" })
+
+CombatTab:Toggle({
+    Title = "Enable Aimbot",
+    Value = State.Aimbot,
+    Callback = function(Value)
+        State.Aimbot = Value
+    end,
+})
+
+CombatTab:Toggle({
+    Title = "Show FOV Circle (แสดงวงกลม FOV)",
+    Value = State.ShowFOV,
+    Callback = function(Value)
+        State.ShowFOV = Value
+    end,
+})
+
+CombatTab:Toggle({
+    Title = "Team Check (ปิดเมื่อเล่นแบบไม่มีทีม/FFA)",
+    Value = State.TeamCheck,
+    Callback = function(Value)
+        State.TeamCheck = Value
+    end,
+})
+
+CombatTab:Toggle({
+    Title = "Wall Check (ไม่ล็อคเป้าหลังกำแพง)",
+    Value = State.WallCheck,
+    Callback = function(Value)
+        State.WallCheck = Value
+    end,
+})
+
+CombatTab:Toggle({
+    Title = "Prediction Engine (ดักหน้าตามความเร็ว/Ping)",
+    Value = State.Prediction,
+    Callback = function(Value)
+        State.Prediction = Value
+    end,
+})
+
+CombatTab:Slider({
+    Title = "Bullet Speed (ปรับตามชนิดปืนในเกม)",
+    Step = 100,
+    Value = {
+        Min = 500,
+        Max = 5000,
+        Default = State.BulletSpeed
+    },
+    Callback = function(Value)
+        State.BulletSpeed = Value
+    end,
+})
+
+CombatTab:Slider({
+    Title = "Smoothness (ความลื่นไหล)",
+    Step = 0.05,
+    Value = {
+        Min = 0.05,
+        Max = 1,
+        Default = State.Smoothness
+    },
+    Callback = function(Value)
+        State.Smoothness = Value
+    end,
+})
+
+CombatTab:Slider({
+    Title = "Aimbot FOV Range",
+    Step = 10,
+    Value = {
+        Min = 50,
+        Max = 500,
+        Default = State.FOV
+    },
+    Callback = function(Value)
+        State.FOV = Value
+    end,
+})
+
+-- Visuals Tab
+local VisualsTab = Window:Tab({
+    Title = "Visuals",
+    Icon = "eye",
+})
+
+VisualsTab:Section({ Title = "ESP Visuals" })
+
+VisualsTab:Toggle({
+    Title = "ESP Wallhack",
+    Value = State.ESP,
+    Callback = function(Value)
+        State.ESP = Value
+    end,
+})
